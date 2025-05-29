@@ -150,9 +150,9 @@ param(
     [int]$PartSizeKB,
 
     [Parameter(ParameterSetName='SplitMBSet', Mandatory=$true, HelpMessage="Size of each part in megabytes. Must be a positive value.")]
-    [Parameter(ParameterSetName='SplitDefaultSet')] 
-    [ValidateRange(1, [int]::MaxValue)] # Applied here too, default will be 10 so it's fine.
-    [int]$PartSizeMB, 
+    [Parameter(ParameterSetName='SplitDefaultSet')] # When this set is active, $PartSizeMB will take its default value
+    [ValidateRange(1, [int]::MaxValue)]
+    [int]$PartSizeMB = 10, # Default value of 10MB specified here 
 
     # Parameters for 'Recombine' Mode
     [Parameter(ParameterSetName='RecombineSet', Mandatory=$true, HelpMessage="Directory where the part files are located.")]
@@ -262,7 +262,7 @@ function Split-File {
     } catch {
         Write-Error "An error occurred during file splitting: $($_.Exception.Message)"
     } finally {
-        if ($fileStream -ne $null) {
+        if ($null -ne $fileStream) {
             $fileStream.Close()
             $fileStream.Dispose()
             Write-Host "Input file stream closed."
@@ -270,7 +270,9 @@ function Split-File {
     }
 }
 
-function Recombine-FileParts {
+function CombineFiles {
+    [CmdletBinding(SupportsShouldProcess = $true)]
+
     param(
         [Parameter(Mandatory=$true)]
         [string]$InputDirectory,
@@ -296,21 +298,56 @@ function Recombine-FileParts {
         }
         Write-Host "Found $($partFiles.Count) potential part file(s)."
 
-        $groupedParts = $partFiles | Group-Object { $_.Name.Substring(0, $_.Name.LastIndexOf(".$([regex]::Match($_.Name, '\d+\.part$').Groups[0].Value)")) }
-        
-        if ($groupedParts.Count -gt 1) {
-            $detectedBaseNames = $groupedParts | ForEach-Object { $_.Name } | ConvertTo-Json -Compress
-            throw "Error: Multiple base names detected for part files in '$InputDirectory': $detectedBaseNames. This script expects parts from a single original file for one recombination operation. Please process them separately."
+        $groupedParts = $partFiles | Group-Object {
+            $currentFileNameForGrouping = $_.Name
+            $baseToGroupOn = $null
+            $regexMatchGroup = [regex]::Match($currentFileNameForGrouping, '(\d+)\.part$')
+            if ($regexMatchGroup.Success) {
+                $partSuffixGroup = $regexMatchGroup.Groups[1].Value + ".part"
+                $stringToFindGroup = ".$partSuffixGroup"
+                $lastIdxGroup = $currentFileNameForGrouping.LastIndexOf($stringToFindGroup)
+                if ($lastIdxGroup -ge 0) {
+                    $baseToGroupOn = $currentFileNameForGrouping.Substring(0, $lastIdxGroup)
+                } else { 
+                    $baseToGroupOn = $currentFileNameForGrouping + "_ERROR_LASTINDEXOF_FAILED_IN_GROUP" 
+                }
+            } else { 
+                 $baseToGroupOn = $currentFileNameForGrouping + "_ERROR_REGEX_FAILED_IN_GROUP"
+            }
+            $baseToGroupOn
         }
         
-        $commonBaseName = $groupedParts[0].Name
+        # Get the actual number of groups created by Group-Object
+        $actualNumberOfGroups = ($groupedParts | Measure-Object).Count
+
+        if ($actualNumberOfGroups -eq 0) { # Should not happen if $partFiles is not empty
+             throw "Critical Error: No groups were formed by Group-Object. Cannot determine common base name."
+        }
+
+        if ($actualNumberOfGroups -gt 1) {
+            # This block should NOT be hit in your case now
+            $allDistinctBaseNamesArray = $groupedParts | ForEach-Object { $_.Name } | Sort-Object -Unique
+            $distinctBaseNamesString = ($allDistinctBaseNamesArray | ForEach-Object { "'$_'" }) -join ", "
+            throw "Error: Multiple distinct base names seem to have been generated. Group-Object process resulted in $actualNumberOfGroups group object(s). Base name(s) from these groups (after Sort-Object -Unique): [$distinctBaseNamesString]. This implies an unexpected issue with filename consistency or the grouping logic. Please review any enabled debug output."
+        }
+        
+        # If we reach here, $actualNumberOfGroups must be 1.
+        # $groupedParts is a collection containing one GroupInfo object.
+        # Access its 'Name' property (the common base name).
+        $commonBaseName = $groupedParts[0].Name 
         Write-Host "Determined common base name for parts: '$commonBaseName'"
 
-        $sortedPartFiles = $partFiles | Where-Object {$_.Name.StartsWith($commonBaseName)} | Sort-Object {[int]($_.Name -replace "^$([regex]::Escape($commonBaseName))\.(.*)\.part$", '$1')}
+        # Filter $partFiles for those starting with the now correctly determined $commonBaseName
+        # Although all should match if logic is correct up to this point.
+        $relevantPartFiles = $partFiles | Where-Object {$_.Name.StartsWith($commonBaseName) -and $_.Name -match '\.\d+\.part$'}
+
+        $sortedPartFiles = $relevantPartFiles | Sort-Object {[int]($_.Name -replace "^$([regex]::Escape($commonBaseName))\.(\d+)\.part$", '$1')}
         
-        Write-Host "Part files sorted numerically for recombination."
-        # Add check for sequence gaps (optional as per prompt, but good for robustness)
-        # For now, we trust the sort order and presence of files.
+        Write-Host "Part files sorted numerically for recombination: $($sortedPartFiles.Count) files."
+        if ($sortedPartFiles.Count -ne $partFiles.Count) {
+            Write-Warning "Mismatch in part file counts after sorting. Initial: $($partFiles.Count), Sorted for common base: $($sortedPartFiles.Count)"
+        }
+
 
         $finalOutputBaseName = if ([string]::IsNullOrWhiteSpace($OutputFileName)) { $commonBaseName } else { $OutputFileName }
         $finalOutputName = $finalOutputBaseName
@@ -340,12 +377,15 @@ function Recombine-FileParts {
                 Write-Warning "Warning: Part file '$($partFile.FullName)' is empty. It will be skipped."
                 continue
             }
-            $currentPartStream = [System.IO.File]::OpenRead($partFile.FullName)
-            $partFileStreams.Add($currentPartStream) # Add to list for disposal in finally
-            
-            $currentPartStream.CopyTo($outputFileStream)
-            $totalBytesWritten += $partFile.Length
-            # Closing and disposing here means if CopyTo fails, it might not be closed. Moved to finally.
+            try {
+                $currentPartStream = [System.IO.File]::OpenRead($partFile.FullName)
+                $partFileStreams.Add($currentPartStream) 
+                $currentPartStream.CopyTo($outputFileStream)
+                $totalBytesWritten += $partFile.Length
+            } catch {
+                 Write-Error "Error processing part file '$($partFile.FullName)': $($_.Exception.Message)"
+                 throw # Re-throw to trigger main catch and cleanup
+            }
         }
 
         Write-Host "File recombination completed successfully."
@@ -355,35 +395,38 @@ function Recombine-FileParts {
 
     } catch {
         Write-Error "An error occurred during file recombination: $($_.Exception.Message)"
-        # Clean up output file if created on error and stream is open
-        if ($outputFileStream -ne $null) {
-            $outputFileStream.Close() # Ensure it's closed before attempting delete
+        if ($null -ne $outputFileStream) {
+            $outputFileStream.Close() 
             $outputFileStream.Dispose()
-            if (Test-Path $outputFilePath -PathType Leaf) {
-                try {
-                    Remove-Item $outputFilePath -Force -ErrorAction Stop
-                    Write-Warning "Partial output file '$outputFilePath' has been removed due to the error."
-                } catch {
-                    Write-Warning "Warning: Could not remove partial output file '$outputFilePath' after error. Details: $($_.Exception.Message)"
+            if ($PSCmdlet.ShouldProcess($outputFilePath, "Remove partially created output file due to error")) {
+                 if (Test-Path $outputFilePath -PathType Leaf) {
+                    try {
+                        Remove-Item $outputFilePath -Force -ErrorAction Stop
+                        Write-Warning "Partial output file '$outputFilePath' has been removed due to the error."
+                    } catch {
+                        Write-Warning "Warning: Could not remove partial output file '$outputFilePath' after error. Details: $($_.Exception.Message)"
+                    }
                 }
             }
         }
     } finally {
-        if ($outputFileStream -ne $null) {
-            if ($outputFileStream.CanWrite) { $outputFileStream.Flush() } # Flush before closing if open
-            $outputFileStream.Close()
-            $outputFileStream.Dispose()
-            Write-Host "Output file stream closed."
+        if ($null -ne $outputFileStream -and $outputFileStream.CanWrite) {
+             try { $outputFileStream.Flush() } catch { Write-Warning "Could not flush output stream: $($_.Exception.Message)"}
+        }
+        if ($null -ne $outputFileStream) {
+            try { $outputFileStream.Close() } catch { Write-Warning "Could not close output stream: $($_.Exception.Message)"}
+            try { $outputFileStream.Dispose() } catch { Write-Warning "Could not dispose output stream: $($_.Exception.Message)"}
+            Write-Host "Output file stream closed/disposed."
         }
         if ($partFileStreams.Count -gt 0) {
             Write-Host "Closing all part file streams..."
             foreach ($stream in $partFileStreams) {
-                if ($stream -ne $null) {
-                    $stream.Close()
-                    $stream.Dispose()
+                if ($null -ne $stream) {
+                    try { $stream.Close() } catch { Write-Warning "Could not close a part stream: $($_.Exception.Message)"}
+                    try { $stream.Dispose() } catch { Write-Warning "Could not dispose a part stream: $($_.Exception.Message)"}
                 }
             }
-            Write-Host "$($partFileStreams.Count) part file stream(s) closed."
+            Write-Host "$($partFileStreams.Count) part file stream(s) closed/disposed."
         }
     }
 }
@@ -397,8 +440,8 @@ try {
 
     switch ($PSCmdlet.ParameterSetName) {
         'SplitDefaultSet' {
-            Write-Host "Action: Splitting file '$Path' with default part size (10MB)."
-            Split-File -Path $Path -OutputDirectory $OutputDirectory -PartSizeMB 10 
+            Write-Host "Action: Splitting file '$Path' with default part size ($($PartSizeMB)MB)."
+            Split-File -Path $Path -OutputDirectory $OutputDirectory -PartSizeMB $PartSizeMB
         }
         'SplitKBSet' {
             Write-Host "Action: Splitting file '$Path' with PartSizeKB = $PartSizeKB."
@@ -410,7 +453,7 @@ try {
         }
         'RecombineSet' {
             Write-Host "Action: Recombining file parts from directory '$InputDirectory'."
-            Recombine-FileParts -InputDirectory $InputDirectory -OutputFileName $OutputFileName -OutputExtension $OutputExtension
+            CombineFiles -InputDirectory $InputDirectory -OutputFileName $OutputFileName -OutputExtension $OutputExtension
         }
         default {
             # This case should ideally not be reached if CmdletBinding and ParameterSets are correctly defined.
