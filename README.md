@@ -46,7 +46,7 @@ Set-ExecutionPolicy RemoteSigned \-Scope CurrentUser
 
 ## **Usage**
 
-### **`FilePartUtil.ps1` \- Splitting and Recombining**
+### **`FilePartUtil.ps1` - Splitting and Recombining**
 
 Open a PowerShell terminal and navigate to the directory where you saved `FilePartUtil.ps1`.
 
@@ -54,7 +54,7 @@ Open a PowerShell terminal and navigate to the directory where you saved `FilePa
 
 **Syntax:**
 ```powershell
-.\\FilePartUtil.ps1 \-Mode Split \-Path \<InputFilePath\> \-OutputDirectory \<PartsDirectoryPath\> \[-PartSizeMB \<SizeInMB\> | \-PartSizeKB \<SizeInKB\>\]
+.\FilePartUtil.ps1 -Mode Split -Path <InputFilePath> -OutputDirectory <PartsDirectoryPath> [-PartSizeMB <SizeInMB> | -PartSizeKB <SizeInKB>]
 ```
 **Parameters for Split Mode:**
 
@@ -68,19 +68,19 @@ Open a PowerShell terminal and navigate to the directory where you saved `FilePa
 
 Split `MyArchive.zip` into 50MB parts:  
 ```powershell
-.\\FilePartUtil.ps1 \-Mode Split \-Path "C:\\LargeFiles\\MyArchive.zip" \-OutputDirectory "C:\\PartsFolder" \-PartSizeMB 50
+.\FilePartUtil.ps1 -Mode Split -Path "C:\\LargeFiles\\MyArchive.zip" -OutputDirectory "C:\\PartsFolder" -PartSizeMB 50
 ```
 1. 
 
 Split `ResearchPaper.docx` into 2048KB (2MB) parts:  
 ```powershell
-.\\FilePartUtil.ps1 \-Mode Split \-Path "D:\\Docs\\ResearchPaper.docx" \-OutputDirectory "D:\\Docs\\PaperParts" \-PartSizeKB 2048
+.\FilePartUtil.ps1 -Mode Split -Path "D:\Docs\ResearchPaper.docx" -OutputDirectory "D:\Docs\PaperParts" -PartSizeKB 2048
 ```
 2. 
 
 Split `Installer.iso` into default 10MB parts:  
 ```powershell
-.\\FilePartUtil.ps1 \-Mode Split \-Path "C:\\Software\\Installer.iso" \-OutputDirectory "C:\\ISO\_Parts"
+.\FilePartUtil.ps1 -Mode Split -Path "C:\Software\Installer.iso" -OutputDirectory "C:\ISO_Parts"
 ```
 3. 
 
@@ -88,7 +88,7 @@ Split `Installer.iso` into default 10MB parts:
 
 **Syntax:**
 ```powershell
-.\\FilePartUtil.ps1 \-Mode Recombine \-InputDirectory \<PartsDirectoryPath\> \[-OutputFileName \<BaseName\>\] \[-OutputExtension \<Extension\>\] \[-WhatIf\] \[-Confirm\]
+.\FilePartUtil.ps1 -Mode Recombine -InputDirectory <PartsDirectoryPath> [-OutputFileName <BaseName>] [-OutputExtension <Extension>] [-WhatIf] [-Confirm]
 ```
 **Parameters for Recombine Mode:**
 
@@ -103,25 +103,25 @@ Split `Installer.iso` into default 10MB parts:
 
 Recombine parts from `C:\PartsFolder` into `MyRestoredArchive.zip`:  
 ```powershell
-.\\FilePartUtil.ps1 \-Mode Recombine \-InputDirectory "C:\\PartsFolder" \-OutputFileName "MyRestoredArchive" \-OutputExtension "zip"
+.\FilePartUtil.ps1 -Mode Recombine -InputDirectory "C:\PartsFolder" -OutputFileName "MyRestoredArchive" -OutputExtension "zip"
 ```
 1. 
 
 Recombine parts from `D:\Docs\PaperParts`, deriving the name and setting extension to `docx`:  
 ```powershell
-.\\FilePartUtil.ps1 \-Mode Recombine \-InputDirectory "D:\\Docs\\PaperParts" \-OutputExtension "docx"
+.\FilePartUtil.ps1 -Mode Recombine -InputDirectory "D:\Docs\PaperParts" -OutputExtension "docx"
 ```
 2. 
 
 Recombine parts and see what would happen without making changes:  
 ```powershell
-.\\FilePartUtil.ps1 \-Mode Recombine \-InputDirectory "C:\\ISO\_Parts" \-WhatIf
+.\FilePartUtil.ps1 -Mode Recombine -InputDirectory "C:\ISO_Parts" -WhatIf
 ```
 3. 
 
 Recombine parts and confirm before overwriting the output file if it exists:  
 ```powershell
-.\\FilePartUtil.ps1 \-Mode Recombine \-InputDirectory "C:\\ISO\_Parts" \-Confirm
+.\FilePartUtil.ps1 -Mode Recombine -InputDirectory "C:\ISO_Parts" -Confirm
 ```
 4. 
 
