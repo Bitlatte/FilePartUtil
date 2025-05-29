@@ -38,7 +38,7 @@ This utility is useful for:
 
 **Execution Policy**: Ensure your PowerShell execution policy allows running local scripts. You might need to run:  
 ```powershell
-Set-ExecutionPolicy RemoteSigned \-Scope CurrentUser
+Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
 ```
 3. 
 
